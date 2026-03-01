@@ -1,5 +1,5 @@
 /**
- * app.js — AI Tutor Frontend Logic
+ * app.js — Learn-GPT Frontend Logic
  * ─────────────────────────────────
  * Handles: chat, PDF upload (with status polling), session management,
  *          chat history sidebar, voice input (Web Speech API), toasts.
@@ -56,13 +56,13 @@ async function checkHealth() {
     try {
         const res = await fetch(`${API_BASE}/health`);
         if (res.ok) {
-            healthBadge.textContent = '● Online';
+            healthBadge.textContent = 'Online';
             healthBadge.className = '';
         } else {
             throw new Error();
         }
     } catch {
-        healthBadge.textContent = '● Offline';
+        healthBadge.textContent = 'Offline';
         healthBadge.className = 'error';
     }
 }
@@ -102,7 +102,7 @@ function renderSidebar() {
     sessionsList.innerHTML = '';
 
     if (!sessions.length) {
-        sessionsList.innerHTML = '<div id="sessions-empty">No chats yet. Start one!</div>';
+        sessionsList.innerHTML = '<div id="sessions-empty">No chats yet. Start a new chat.</div>';
         return;
     }
 
@@ -111,7 +111,7 @@ function renderSidebar() {
         item.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
         item.dataset.id = s.id;
         item.innerHTML = `
-      <span class="session-icon">💬</span>
+      <span class="session-icon"></span>
       <span class="session-name" title="${escHtml(s.label)}">${escHtml(s.label)}</span>
       <span class="session-date">${escHtml(s.date || '')}</span>`;
         item.addEventListener('click', () => switchSession(s.id));
@@ -184,9 +184,9 @@ function appendMessage(role, content, animate = true) {
     row.className = `msg-row ${role}`;
     if (!animate) row.style.animation = 'none';
 
+    // Avatar kept in DOM for compatibility; hidden via CSS
     const avatar = document.createElement('div');
     avatar.className = 'msg-avatar';
-    avatar.textContent = role === 'user' ? '🧑' : '🤖';
 
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -219,7 +219,6 @@ function appendTypingIndicator() {
 
     const avatar = document.createElement('div');
     avatar.className = 'msg-avatar';
-    avatar.textContent = '🤖';
 
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble typing-indicator';
@@ -280,28 +279,93 @@ async function sendMessage() {
             return;
         }
 
-        const data = await res.json();
+        // ── Streaming read ────────────────────────────────────────────────────
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
 
-        // Server may have assigned a new session id
-        if (data.session_id && data.session_id !== currentSessionId) {
-            currentSessionId = data.session_id;
-            localStorage.setItem(CURRENT_KEY, currentSessionId);
+        // Create an assistant bubble in 'thinking' state before first token
+        const assistantBubble = appendMessage('assistant', '', true);
+        assistantBubble.classList.add('thinking');
+        assistantBubble.innerHTML = 'Generating response<span class="thinking-dots"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></span>';
+
+        let fullText = '';
+        let sessionHeaderConsumed = false;
+        let firstToken = true;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+
+            // The very first chunk may start with the SESSION: header line.
+            // Format: "SESSION:<uuid>\n<tokens...>"
+            if (!sessionHeaderConsumed) {
+                if (chunk.startsWith('SESSION:')) {
+                    const newlineIdx = chunk.indexOf('\n');
+                    const headerLine = chunk.slice(0, newlineIdx);        // "SESSION:<uuid>"
+                    const serverSessionId = headerLine.slice('SESSION:'.length).trim();
+                    const remainder = chunk.slice(newlineIdx + 1);        // actual tokens
+
+                    // Update session_id if the server assigned a new one
+                    if (serverSessionId && serverSessionId !== currentSessionId) {
+                        currentSessionId = serverSessionId;
+                        localStorage.setItem(CURRENT_KEY, currentSessionId);
+                    }
+                    sessionHeaderConsumed = true;
+                    if (!remainder) continue;                             // nothing else in this chunk
+                    // First real content: clear the thinking state
+                    if (firstToken) {
+                        assistantBubble.classList.remove('thinking');
+                        assistantBubble.textContent = '';
+                        firstToken = false;
+                    }
+                    fullText += remainder;
+                    assistantBubble.textContent += remainder;
+                } else {
+                    // Safety: header not present — treat whole chunk as content
+                    if (firstToken) {
+                        assistantBubble.classList.remove('thinking');
+                        assistantBubble.textContent = '';
+                        firstToken = false;
+                    }
+                    sessionHeaderConsumed = true;
+                    fullText += chunk;
+                    assistantBubble.textContent += chunk;
+                }
+            } else {
+                if (firstToken) {
+                    assistantBubble.classList.remove('thinking');
+                    assistantBubble.textContent = '';
+                    firstToken = false;
+                }
+                fullText += chunk;
+                assistantBubble.textContent += chunk;
+            }
+
+            scrollToBottom();
         }
 
-        // Update session label with first message
+        // ── Post-stream: handle [ERROR] sentinel from server ──────────────────
+        if (fullText.includes('[ERROR]')) {
+            const errMsg = fullText.split('[ERROR]').pop().trim();
+            assistantBubble.classList.add('error-bubble');
+            showToast('error', '⚠️ ' + errMsg.slice(0, 120));
+        }
+
+        // Update session label with first message text
         const sess = findSession(currentSessionId);
         if (!sess || sess.label.startsWith('Chat ')) {
             saveSession(currentSessionId, text.slice(0, 42));
             renderSidebar();
         }
 
-        appendMessage('assistant', data.response);
         updateTopbar();
 
     } catch (e) {
         removeTypingIndicator();
-        appendSystemMsg('⚠️ Network error. Is the backend running?', 'upload-error');
-        showToast('error', '⚠️ Network error');
+        appendSystemMsg('Network error. Is the backend running?', 'upload-error');
+        showToast('error', 'Network error — is the backend running?');
     } finally {
         isWaiting = false;
         sendBtn.disabled = false;
@@ -314,7 +378,7 @@ async function sendMessage() {
 async function uploadPDF(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-        showToast('error', '❌ Only PDF files are supported.');
+        showToast('error', 'Only PDF files are supported.');
         return;
     }
 
@@ -346,8 +410,8 @@ async function uploadPDF(file) {
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({ detail: 'Upload failed.' }));
-            statusEl.innerHTML = `<span class="upload-error">❌ Upload failed: ${escHtml(err.detail || '')}</span>`;
-            showToast('error', '❌ Upload failed: ' + (err.detail || ''));
+            statusEl.innerHTML = `<span class="upload-error">Upload failed: ${escHtml(err.detail || '')}</span>`;
+            showToast('error', 'Upload failed: ' + (err.detail || ''));
             return;
         }
 
@@ -360,8 +424,8 @@ async function uploadPDF(file) {
         await pollEmbeddingStatus(sid, statusEl, file.name);
 
     } catch (e) {
-        statusEl.innerHTML = `<span class="upload-error">❌ Network error during upload.</span>`;
-        showToast('error', '❌ Network error during upload.');
+        statusEl.innerHTML = `<span class="upload-error">Network error during upload.</span>`;
+        showToast('error', 'Network error during upload.');
     }
 
     // Reset file input
@@ -382,18 +446,18 @@ async function pollEmbeddingStatus(sessionId, statusEl, filename) {
 
                 if (status === 'ready') {
                     clearInterval(interval);
-                    statusEl.innerHTML = `<span class="upload-success">✅ <strong>${escHtml(filename)}</strong> processed — RAG is active!</span>`;
-                    showToast('success', `✅ ${filename} is ready. You can now ask questions!`);
+                    statusEl.innerHTML = `<span class="upload-success"><strong>${escHtml(filename)}</strong> processed — RAG is active.</span>`;
+                    showToast('success', `${filename} is ready. You can now ask questions!`);
                     resolve('ready');
                 } else if (status === 'error') {
                     clearInterval(interval);
-                    statusEl.innerHTML = `<span class="upload-error">❌ Embedding failed for <strong>${escHtml(filename)}</strong>. Check server logs.</span>`;
-                    showToast('error', '❌ Embedding failed.');
+                    statusEl.innerHTML = `<span class="upload-error">Embedding failed for <strong>${escHtml(filename)}</strong>. Check server logs.</span>`;
+                    showToast('error', 'Embedding failed.');
                     resolve('error');
                 } else if (attempts >= MAX_ATTEMPTS) {
                     clearInterval(interval);
-                    statusEl.innerHTML = `<span class="upload-error">⏱️ Embedding timed out for <strong>${escHtml(filename)}</strong>.</span>`;
-                    showToast('error', '⏱️ Embedding timed out.');
+                    statusEl.innerHTML = `<span class="upload-error">Embedding timed out for <strong>${escHtml(filename)}</strong>.</span>`;
+                    showToast('error', 'Embedding timed out.');
                     resolve('timeout');
                 }
             } catch {
@@ -425,7 +489,7 @@ function setupVoice() {
 
     recognition.onerror = () => {
         stopRecording();
-        showToast('error', '🎤 Voice input error. Check microphone permissions.');
+        showToast('error', 'Voice input error. Check microphone permissions.');
     };
 
     recognition.onend = () => stopRecording();
@@ -440,15 +504,15 @@ function toggleRecording() {
         recognition.start();
         isRecording = true;
         micBtn.classList.add('recording');
-        micBtn.textContent = '⏹';
-        showToast('info', '🎤 Listening… speak now.');
+        micBtn.setAttribute('aria-label', 'Stop recording');
+        showToast('info', 'Listening — speak now.');
     }
 }
 
 function stopRecording() {
     isRecording = false;
     micBtn.classList.remove('recording');
-    micBtn.textContent = '🎤';
+    micBtn.setAttribute('aria-label', 'Start voice input');
 }
 
 // ── Toast Notifications ────────────────────────────────────────────────────

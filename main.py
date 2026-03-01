@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +42,7 @@ from chat_manager.manager import (
 from config import CHAT_DIR, CORS_ORIGINS, MAX_PDF_BYTES
 from rag_pipeline.chunking import chunk_text
 from rag_pipeline.llm import prewarm
-from rag_pipeline.pipeline import run_pipeline
+from rag_pipeline.pipeline import run_pipeline, run_pipeline_stream
 from rag_pipeline.vector_store import add_documents
 from utils.pdf_loader import extract_text_from_pdf
 
@@ -214,18 +215,20 @@ async def health_check():
 
 @app.post(
     "/chat",
-    response_model=ChatResponse,
     tags=["Chat"],
-    summary="Send a message to the AI Tutor",
+    summary="Send a message to the AI Tutor (streaming)",
 )
 async def chat(request: ChatRequest):
     """
-    Send a student message and receive an AI Tutor response.
+    Send a student message and receive a real-time streamed AI Tutor response.
 
-    - If `session_id` is omitted, a new UUID session is created automatically.
-    - Maintains a rolling chat memory window for conversational context.
-    - If PDFs have been uploaded for this session, uses RAG-grounded responses.
-    - Otherwise, responds using the LLM's general knowledge.
+    - Response is delivered as a plain-text stream (text/plain) so the
+      frontend can progressively render tokens as they arrive.
+    - Session management and message persistence are unchanged.
+    - The session_id is sent as the very first line of the stream:
+        SESSION:<uuid>\n
+      followed immediately by the LLM tokens. The frontend strips this
+      header to extract the session_id without a separate JSON round-trip.
     """
     # ── Session management ────────────────────────────────────────────────────
     if not request.session_id:
@@ -234,7 +237,6 @@ async def chat(request: ChatRequest):
     else:
         session_id = request.session_id
         if not session_exists(session_id):
-            # Gracefully auto-create if the client provided an unknown ID
             create_session(session_id)
             logger.info(f"Auto-created session for provided ID: {session_id}")
 
@@ -243,27 +245,49 @@ async def chat(request: ChatRequest):
 
     # ── Build LLM context (windowed history, excluding current msg) ───────────
     full_window = get_windowed_history(session_id)
-    # The last entry is the message we just saved — pass prior history as context
     history_for_llm = full_window[:-1]
 
-    # ── Run RAG pipeline ──────────────────────────────────────────────────────
-    try:
-        response_text = run_pipeline(
-            session_id=session_id,
-            user_message=request.message,
-            history=history_for_llm,
-        )
-    except RuntimeError as e:
-        logger.error(f"Pipeline error for session '{session_id}': {e}")
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected pipeline error for session '{session_id}': {e}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred. Check server logs.")
+    # ── Streaming generator ───────────────────────────────────────────────────
+    def token_stream():
+        """
+        Yields:
+          1. A session header line so the frontend can recover the session_id.
+          2. Raw LLM token chunks as they arrive.
+        After the stream is exhausted the full response is saved to chat history.
+        """
+        # Header: lets the client know the (possibly auto-created) session_id
+        yield f"SESSION:{session_id}\n"
 
-    # ── Save assistant response ───────────────────────────────────────────────
-    save_message(session_id, "assistant", response_text)
+        collected = []
+        try:
+            for token in run_pipeline_stream(
+                session_id=session_id,
+                user_message=request.message,
+                history=history_for_llm,
+            ):
+                collected.append(token)
+                yield token
+        except RuntimeError as e:
+            logger.error(f"[Stream] Pipeline error for session '{session_id}': {e}")
+            yield f"\n\n[ERROR] {e}"
+            return
+        except Exception as e:
+            logger.error(
+                f"[Stream] Unexpected pipeline error for session '{session_id}': {e}"
+            )
+            yield "\n\n[ERROR] An unexpected error occurred. Check server logs."
+            return
 
-    return ChatResponse(session_id=session_id, response=response_text)
+        # ── Persist the full assembled response ───────────────────────────────
+        full_response = "".join(collected).strip()
+        if full_response:
+            save_message(session_id, "assistant", full_response)
+            logger.info(
+                f"[Stream] Saved assistant response "
+                f"({len(full_response)} chars) for session '{session_id}'."
+            )
+
+    return StreamingResponse(token_stream(), media_type="text/plain")
 
 
 @app.post(

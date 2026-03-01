@@ -64,6 +64,51 @@ def generate(prompt: str) -> str:
         ) from e
 
 
+def generate_stream(prompt: str):
+    """
+    Send a prompt string to Ollama and yield response tokens incrementally.
+
+    Uses Ollama's built-in streaming mode so that each partial token chunk
+    is yielded as soon as it is produced, enabling real-time display.
+
+    Args:
+        prompt: The complete formatted prompt string (system + context + query).
+
+    Yields:
+        str: Successive token chunks from the LLM response.
+
+    Raises:
+        RuntimeError: If Ollama is unreachable or the model is not available locally.
+    """
+    if not prompt.strip():
+        raise ValueError("Prompt cannot be empty.")
+
+    try:
+        logger.debug(
+            f"Streaming prompt to Ollama model '{LLM_MODEL}' ({len(prompt)} chars)."
+        )
+
+        client = ollama.Client(host=OLLAMA_BASE_URL)
+        stream = client.generate(model=LLM_MODEL, prompt=prompt, stream=True)
+
+        for chunk in stream:
+            token = chunk.get("response", "")
+            if token:
+                yield token
+
+        logger.debug("Ollama stream complete.")
+
+    except Exception as e:
+        logger.error(f"Ollama streaming call failed: {e}")
+        raise RuntimeError(
+            f"LLM stream is unavailable. "
+            f"Ensure Ollama is running and the model '{LLM_MODEL}' is pulled locally.\n"
+            f"Fix: Run  →  ollama pull {LLM_MODEL}\n"
+            f"Then restart Ollama and retry.\n"
+            f"Internal error: {e}"
+        ) from e
+
+
 def prewarm() -> None:
     """
     Send a trivial prompt to Ollama to load the model weights into memory.

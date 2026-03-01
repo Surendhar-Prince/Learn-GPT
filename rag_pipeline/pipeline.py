@@ -24,7 +24,7 @@ from typing import List
 
 from rag_pipeline.vector_store import session_has_documents
 from rag_pipeline.retriever import retrieve
-from rag_pipeline.llm import generate
+from rag_pipeline.llm import generate, generate_stream
 from config import MAX_CONTEXT_CHUNKS
 
 logger = logging.getLogger(__name__)
@@ -161,3 +161,53 @@ def run_pipeline(
 
     # Step 3: Generate and return response
     return generate(prompt)
+
+
+def run_pipeline_stream(
+    session_id: str,
+    user_message: str,
+    history: List[dict],
+):
+    """
+    Streaming variant of run_pipeline().
+
+    Builds the exact same prompt as run_pipeline() but calls
+    generate_stream() and yields each token chunk as it arrives.
+    Callers iterate over the returned generator to consume tokens
+    progressively.
+
+    Args:
+        session_id: The active session identifier.
+        user_message: The student's latest message/question.
+        history: Windowed chat history (excluding the current message).
+
+    Yields:
+        str: Successive token chunks from the LLM response.
+
+    Raises:
+        RuntimeError: Propagated from llm.generate_stream() if Ollama is unavailable.
+    """
+    if session_has_documents(session_id):
+        logger.info(f"[Pipeline/stream] RAG path → session '{session_id}'.")
+        context_chunks = retrieve(session_id, user_message)
+        if context_chunks:
+            prompt = _build_rag_prompt(context_chunks, history, user_message)
+            logger.info(
+                f"[Pipeline/stream] Injecting "
+                f"{min(len(context_chunks), MAX_CONTEXT_CHUNKS)} chunk(s)."
+            )
+        else:
+            logger.warning(
+                f"[Pipeline/stream] RAG retrieval returned 0 chunks for "
+                f"session '{session_id}'. Falling back to plain LLM prompt."
+            )
+            prompt = _build_plain_prompt(history, user_message)
+    else:
+        logger.info(
+            f"[Pipeline/stream] Plain LLM path → session '{session_id}' "
+            f"(no documents uploaded yet)."
+        )
+        prompt = _build_plain_prompt(history, user_message)
+
+    # Yield tokens incrementally from the streaming generator
+    yield from generate_stream(prompt)
