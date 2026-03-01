@@ -15,3 +15,7 @@ data/vectors/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime data
+data/chats/
+data/vectors/
