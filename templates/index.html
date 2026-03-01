@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI Tutor — RAG-powered intelligent tutoring system. Upload PDFs and chat with a Llama 3 AI tutor grounded in your study material." />
+  <title>AI Tutor — Learn with AI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<!-- ── Toast container ───────────────────────────────────────── -->
+<div id="toast-container" aria-live="polite"></div>
+
+<!-- ── App shell ─────────────────────────────────────────────── -->
+<div id="app">
+
+  <!-- ══ Sidebar ══════════════════════════════════════════════ -->
+  <aside id="sidebar" role="navigation" aria-label="Chat sessions">
+
+    <div id="sidebar-header">
+      <div id="sidebar-logo" aria-hidden="true">🤖</div>
+      <span id="sidebar-title">AI Tutor</span>
+    </div>
+
+    <button id="new-chat-btn" title="Start a new conversation" aria-label="New chat">
+      <span aria-hidden="true">✏️</span> New Chat
+    </button>
+
+    <div id="sessions-label" aria-label="Previous chats">Recent</div>
+
+    <div id="sessions-list" role="listbox" aria-label="Chat history">
+      <!-- Populated by app.js -->
+    </div>
+
+  </aside><!-- /sidebar -->
+
+  <!-- ══ Main ═════════════════════════════════════════════════ -->
+  <main id="main" role="main">
+
+    <!-- Top bar -->
+    <header id="topbar">
+      <div id="topbar-session" aria-label="Current session">
+        <span class="status-dot" aria-hidden="true"></span>
+        Session: <span id="topbar-session-id">—</span>
+      </div>
+      <div id="health-badge" aria-live="polite" title="Backend health status">Checking…</div>
+    </header>
+
+    <!-- Chat window -->
+    <section id="chat-window" role="log" aria-label="Chat messages" aria-live="polite">
+
+      <!-- Welcome / empty state -->
+      <div id="welcome-screen" aria-label="Welcome">
+        <div class="welcome-icon" aria-hidden="true">🤖</div>
+        <h1 style="font-size:22px;font-weight:600;">Welcome to AI Tutor</h1>
+        <p>Ask anything, or upload a PDF to get grounded, context-aware answers powered by Llama 3 and RAG.</p>
+
+        <div class="welcome-hints" role="list">
+          <button class="hint-chip" role="listitem"
+            onclick="useHint('Explain the key concepts in my uploaded document.')"
+            aria-label="Use hint: Explain key concepts">
+            📄 Explain key concepts
+          </button>
+          <button class="hint-chip" role="listitem"
+            onclick="useHint('Summarize the main points of my study material.')"
+            aria-label="Use hint: Summarize main points">
+            📝 Summarize main points
+          </button>
+          <button class="hint-chip" role="listitem"
+            onclick="useHint('Create 5 quiz questions from my PDF.')"
+            aria-label="Use hint: Create quiz questions">
+            🎯 Create quiz questions
+          </button>
+          <button class="hint-chip" role="listitem"
+            onclick="useHint('What are the most important definitions I should know?')"
+            aria-label="Use hint: Important definitions">
+            📖 Important definitions
+          </button>
+        </div>
+      </div>
+      <!-- Messages injected here by app.js -->
+
+    </section><!-- /chat-window -->
+
+    <!-- Input section -->
+    <footer id="input-section" aria-label="Message input">
+
+      <div id="input-wrapper">
+
+        <!-- PDF upload button -->
+        <button class="input-btn" id="upload-btn"
+          title="Upload a PDF document"
+          aria-label="Upload PDF">
+          📎
+        </button>
+        <input
+          type="file"
+          id="pdf-file-input"
+          accept=".pdf"
+          aria-label="Select PDF file"
+        />
+
+        <!-- Text input -->
+        <textarea
+          id="message-input"
+          rows="1"
+          placeholder="Ask a question… (Shift+Enter for new line)"
+          aria-label="Message input"
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+
+        <!-- Mic button -->
+        <button class="input-btn" id="mic-btn"
+          title="Voice input"
+          aria-label="Start voice input">
+          🎤
+        </button>
+
+        <!-- Send button -->
+        <button id="send-btn"
+          title="Send message"
+          aria-label="Send message">
+          ➤
+        </button>
+
+      </div>
+
+      <div id="input-footer">
+        AI Tutor · Llama 3 via Ollama · RAG with ChromaDB ·
+        <kbd>Enter</kbd> to send &nbsp;·&nbsp; <kbd>Shift+Enter</kbd> for new line
+      </div>
+
+    </footer><!-- /input-section -->
+
+  </main><!-- /main -->
+
+</div><!-- /#app -->
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

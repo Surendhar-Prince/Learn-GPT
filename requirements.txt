@@ -1,0 +1,34 @@
+# ────────────────────────────────────────────────────────────────────────────
+# AI Tutor Backend — Python Dependencies
+# Install with: pip install -r requirements.txt
+# ────────────────────────────────────────────────────────────────────────────
+
+# Web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+
+# LangChain core + community integrations
+langchain>=0.1.16
+langchain-community>=0.0.38
+langchain-core>=0.1.46
+langchain-text-splitters
+# Vector database
+chromadb>=0.4.24
+
+# Embeddings
+sentence-transformers>=2.7.0
+
+# PDF parsing
+pymupdf>=1.24.0
+
+# LLM via Ollama
+ollama>=0.1.9
+
+# File upload support (multipart/form-data)
+python-multipart>=0.0.9
+
+# Thread-safe file I/O for chat JSON
+filelock>=3.13.1
+
+# Type-checking utilities (Python 3.10 compat)
+typing-extensions>=4.10.0
